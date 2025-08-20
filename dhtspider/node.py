@@ -8,6 +8,7 @@ from .utils import generate_node_id, decode_nodes
 from .fetcher import MetadataFetcher
 from .storage import Storage
 from .kbucket import RoutingTable
+from pybloom_live import BloomFilter
 
 
 class Node(asyncio.DatagramProtocol):
@@ -22,7 +23,9 @@ class Node(asyncio.DatagramProtocol):
         self.krpc = KRPC(self)
         self.transport = None
         self.routing_table = RoutingTable(self.node_id)
-        self.seen_info_hashes = set()
+        # 使用布隆过滤器来存储见过的 info_hash，以节省内存
+        # 容量一亿，错误率万分之一
+        self.seen_info_hashes = BloomFilter(capacity=100000000, error_rate=0.0001)
         self.storage = Storage()
         self.fetcher_semaphore = asyncio.Semaphore(100)
 
