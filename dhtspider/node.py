@@ -223,8 +223,10 @@ class Node(asyncio.DatagramProtocol):
         当成功获取元数据时的回调。
         """
         try:
-            name = metadata[b'name'].decode('utf-8', 'ignore')
+            # 尝试解码名称用于打印，但这不再是存储的强制要求
+            name = metadata.get(b'name', b'Unknown').decode('utf-8', 'ignore')
             print(f"成功获取元数据: {name}")
-            await self.storage.save(info_hash, name)
+            # 将完整的元数据字典传递给存储层
+            await self.storage.save(info_hash, metadata)
         except Exception as e:
-            print(f"处理元数据时出错: {e}")
+            print(f"处理或保存元数据时出错: {e}")

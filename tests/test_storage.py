@@ -1,54 +1,39 @@
 import pytest
+import os
+import hashlib
+import bencoding
 from dhtspider.storage import Storage
 
 @pytest.mark.asyncio
-async def test_storage_save_and_close(tmp_path):
+async def test_storage_saves_torrent_file(tmp_path):
     """
-    Tests that the Storage class can save data to a file and close it properly.
+    测试 Storage 类是否能将元数据正确保存为 .torrent 文件。
     """
-    # Use a temporary file for the test
-    test_file = tmp_path / "torrents.txt"
+    # 1. 设置测试环境
+    # 使用 pytest 的 tmp_path fixture 来创建一个临时的 'bt' 目录
+    output_dir = tmp_path / "bt"
+    storage = Storage(output_dir=str(output_dir))
 
-    storage = Storage(filename=str(test_file))
+    # 2. 准备测试数据
+    metadata = {
+        b'name': b'test_torrent',
+        b'piece length': 262144,
+        b'pieces': b'a' * 20
+    }
+    # 根据元数据计算 info_hash
+    info_hash = hashlib.sha1(bencoding.bencode(metadata)).digest()
 
-    # Sample data
-    info_hash = b'\x12\x34\x56\x78\x90\xab\xcd\xef' * 2 + b'\x12\x34\x56\x78'
-    name = "My Test Torrent"
+    # 3. 调用被测试的方法
+    await storage.save(info_hash, metadata)
 
-    # Save the data
-    await storage.save(info_hash, name)
+    # 4. 验证结果
+    # 验证文件是否已创建
+    expected_file_path = output_dir / f"{info_hash.hex()}.torrent"
+    assert os.path.exists(expected_file_path)
 
-    # Close the storage, which should flush the data to the file
-    storage.close()
+    # 验证文件内容是否正确
+    with open(expected_file_path, "rb") as f:
+        file_content = f.read()
 
-    # Read the file and verify its contents
-    with open(test_file, "r", encoding="utf-8") as f:
-        line = f.readline().strip()
-
-    expected_line = f"{info_hash.hex()}|{name}"
-    assert line == expected_line
-
-@pytest.mark.asyncio
-async def test_storage_multiple_saves(tmp_path):
-    """
-    Tests that multiple saves are written correctly.
-    """
-    test_file = tmp_path / "torrents.txt"
-    storage = Storage(filename=str(test_file))
-
-    info_hash1 = b'a' * 20
-    name1 = "Torrent 1"
-    await storage.save(info_hash1, name1)
-
-    info_hash2 = b'b' * 20
-    name2 = "Torrent 2"
-    await storage.save(info_hash2, name2)
-
-    storage.close()
-
-    with open(test_file, "r", encoding="utf-8") as f:
-        lines = f.readlines()
-
-    assert len(lines) == 2
-    assert lines[0].strip() == f"{info_hash1.hex()}|{name1}"
-    assert lines[1].strip() == f"{info_hash2.hex()}|{name2}"
+    expected_content = bencoding.bencode(metadata)
+    assert file_content == expected_content
