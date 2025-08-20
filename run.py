@@ -1,10 +1,15 @@
 import asyncio
-import uvloop
+import sys
 from dhtspider.node import Node
 from dhtspider.config import HOST, PORT
 
-# 安装 uvloop 作为默认的事件循环，以提升性能
-uvloop.install()
+# 在非 Windows 平台上，安装 uvloop 作为默认的事件循环以提升性能
+if sys.platform != 'win32':
+    import uvloop
+    uvloop.install()
+    print("uvloop 已安装，事件循环性能已提升。")
+else:
+    print("在 Windows 平台上运行，使用默认的 asyncio 事件循环。")
 
 # 爬虫启动入口
 
