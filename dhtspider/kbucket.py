@@ -102,10 +102,15 @@ class RoutingTable:
         # 重新分配旧 bucket 中的所有节点到新的两个 bucket 中
         all_nodes = old_bucket.get_nodes()
         old_bucket.nodes.clear()
+        new_bucket.nodes.clear()
 
         for node in all_nodes:
-            # 递归调用 add_node，它会根据新的 bucket 范围将节点放入正确的位置
-            self.add_node(node)
+            node_id_bytes, _, _ = node
+            node_id_int = int.from_bytes(node_id_bytes, 'big')
+            if node_id_int >= new_bucket.min_id:
+                new_bucket.add_node(node)
+            else:
+                old_bucket.add_node(node)
 
     def get_closest_nodes(self, target_id, count=K):
         """
