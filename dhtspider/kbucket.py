@@ -1,8 +1,7 @@
 import time
 from collections import OrderedDict
+from .config import K_BUCKET_SIZE as K
 
-# DHT K-bucket 的大小
-K = 8
 # 节点ID的位数
 ID_BITS = 160
 

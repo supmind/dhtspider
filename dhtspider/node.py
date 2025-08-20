@@ -17,7 +17,8 @@ from .config import (
     FETCHER_SEMAPHORE_LIMIT,
     BUCKET_REFRESH_INTERVAL,
     FIND_NODES_INTERVAL,
-    STATUS_REPORT_INTERVAL
+    STATUS_REPORT_INTERVAL,
+    DHT_SEARCH_CONCURRENCY
 )
 from pybloom_live import BloomFilter
 
@@ -153,7 +154,9 @@ class Node(asyncio.DatagramProtocol):
         while True:
             # 1. 对我们自己的ID执行 find_node 查询以发现新节点
             # 这是更主动的节点发现策略
-            closest_nodes = self.routing_table.get_closest_nodes(self.node_id)
+            closest_nodes = self.routing_table.get_closest_nodes(
+                self.node_id, count=DHT_SEARCH_CONCURRENCY
+            )
             for node_id, ip, port in closest_nodes:
                 try:
                     query = self.krpc.find_node_query(self.node_id)

@@ -23,6 +23,8 @@ STORAGE_DIR = "bt"
 FETCHER_SEMAPHORE_LIMIT = 100  # 并发抓取限制
 
 # K-Bucket 维护配置
+K_BUCKET_SIZE = 16           # K-bucket 大小，默认为 8，增加到 16 以容纳更多节点
+DHT_SEARCH_CONCURRENCY = 32    # 在 find_nodes 任务中，一次向多少个节点发送查询
 BUCKET_REFRESH_INTERVAL = 600  # 10分钟，K-Bucket 刷新时间
 FIND_NODES_INTERVAL = 60     # 1分钟，执行一次 find_new_nodes 的间隔
 
