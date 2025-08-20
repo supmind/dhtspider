@@ -120,13 +120,23 @@ class Node(asyncio.DatagramProtocol):
         """
         通过连接到已知的 DHT 节点来引导节点。
         """
+        loop = asyncio.get_running_loop()
         for host, port in BOOTSTRAP_NODES:
             try:
+                # 使用异步方式解析域名
+                res = await loop.getaddrinfo(host, port, proto=socket.IPPROTO_UDP)
+                # res 是一个元组列表，我们取第一个结果
+                # (family, type, proto, canonname, sockaddr)
+                # sockaddr 是 (ip, port)
+                family, _, _, _, sockaddr = res[0]
+
                 query = self.krpc.find_node_query(self.node_id)
                 if self.transport:
-                    self.transport.sendto(query, (host, port))
+                    self.transport.sendto(query, sockaddr)
             except socket.gaierror:
-                pass
+                logging.warning("无法解析引导节点: %s:%s", host, port)
+            except Exception as e:
+                logging.error("引导过程中出现未知错误: %s", e, exc_info=True)
 
     def handle_find_node_response(self, trans_id, args, address):
         """
