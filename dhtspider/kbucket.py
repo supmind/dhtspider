@@ -141,3 +141,9 @@ class RoutingTable:
         for bucket in self.buckets:
             all_nodes.extend(bucket.get_nodes())
         return all_nodes
+
+    def __len__(self):
+        """
+        返回路由表中节点的总数。
+        """
+        return sum(len(bucket) for bucket in self.buckets)
