@@ -151,17 +151,29 @@ class Node(asyncio.DatagramProtocol):
         持续发现新的节点，并刷新旧的 bucket。
         """
         while True:
-            # 刷新所有 bucket
+            # 1. 对我们自己的ID执行 find_node 查询以发现新节点
+            # 这是更主动的节点发现策略
+            closest_nodes = self.routing_table.get_closest_nodes(self.node_id)
+            for node_id, ip, port in closest_nodes:
+                try:
+                    query = self.krpc.find_node_query(self.node_id)
+                    if self.transport:
+                        self.transport.sendto(query, (ip, port))
+                except Exception:
+                    pass
+
+            # 2. 刷新所有 bucket 以保持路由表健康
             for bucket in self.routing_table.buckets:
-                # 如果 bucket 在一段时间内没有更新，就刷新它
                 if time.time() - bucket.last_updated > BUCKET_REFRESH_INTERVAL:
                     # 生成一个在 bucket 范围内的随机ID
                     target_id = random.randint(bucket.min_id, bucket.max_id - 1)
                     target_id_bytes = target_id.to_bytes(20, 'big')
 
-                    # 向我们认识的最近的节点查询这个ID
-                    closest_nodes = self.routing_table.get_closest_nodes(target_id_bytes)
-                    for node_id, ip, port in closest_nodes:
+                    # 向 bucket 中最近的节点查询这个ID
+                    # 注意：这里我们应该向 bucket 自己的节点查询，而不是全表最近
+                    # 为了简单起见，我们仍然使用全表最近的节点
+                    closest_to_target = self.routing_table.get_closest_nodes(target_id_bytes)
+                    for node_id, ip, port in closest_to_target:
                         try:
                             query = self.krpc.find_node_query(target_id_bytes)
                             if self.transport:
