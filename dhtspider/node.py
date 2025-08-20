@@ -1,10 +1,13 @@
 import asyncio
 import socket
 import hashlib
+import random
+import time
 from .krpc import KRPC
 from .utils import generate_node_id, decode_nodes
 from .fetcher import MetadataFetcher
 from .storage import Storage
+from .kbucket import RoutingTable
 
 
 class Node(asyncio.DatagramProtocol):
@@ -18,7 +21,7 @@ class Node(asyncio.DatagramProtocol):
         self.peer_id = hashlib.sha1(self.node_id).digest()
         self.krpc = KRPC(self)
         self.transport = None
-        self.routing_table = []
+        self.routing_table = RoutingTable(self.node_id)
         self.seen_info_hashes = set()
         self.storage = Storage()
         self.fetcher_semaphore = asyncio.Semaphore(100)
@@ -86,23 +89,32 @@ class Node(asyncio.DatagramProtocol):
         """
         nodes = decode_nodes(args[b'nodes'])
         for node_id, ip, port in nodes:
-            if (node_id, ip, port) not in self.routing_table:
-                self.routing_table.append((node_id, ip, port))
+            self.routing_table.add_node((node_id, ip, port))
 
     async def find_new_nodes(self):
         """
-        持续发现新的节点。
+        持续发现新的节点，并刷新旧的 bucket。
         """
         while True:
-            for node_id, ip, port in self.routing_table[:]:
-                try:
-                    target_id = generate_node_id()
-                    query = self.krpc.find_node_query(target_id)
-                    if self.transport:
-                        self.transport.sendto(query, (ip, port))
-                except Exception:
-                    self.routing_table.remove((node_id, ip, port))
-            await asyncio.sleep(1)
+            # 刷新所有 bucket
+            for bucket in self.routing_table.buckets:
+                # 如果 bucket 在一段时间内没有更新，就刷新它
+                if time.time() - bucket.last_updated > 600: # 10分钟
+                    # 生成一个在 bucket 范围内的随机ID
+                    target_id = random.randint(bucket.min_id, bucket.max_id - 1)
+                    target_id_bytes = target_id.to_bytes(20, 'big')
+
+                    # 向我们认识的最近的节点查询这个ID
+                    closest_nodes = self.routing_table.get_closest_nodes(target_id_bytes)
+                    for node_id, ip, port in closest_nodes:
+                        try:
+                            query = self.krpc.find_node_query(target_id_bytes)
+                            if self.transport:
+                                self.transport.sendto(query, (ip, port))
+                        except Exception:
+                            pass
+
+            await asyncio.sleep(60) # 每分钟检查一次
 
 
     def handle_ping_query(self, trans_id, args, address):
@@ -127,7 +139,9 @@ class Node(asyncio.DatagramProtocol):
         info_hash = args[b'info_hash']
         if info_hash not in self.seen_info_hashes:
             self.seen_info_hashes.add(info_hash)
-            for node_id, ip, port in self.routing_table:
+            # 从K-Bucket中找到最近的节点并向它们查询
+            closest_nodes = self.routing_table.get_closest_nodes(info_hash)
+            for node_id, ip, port in closest_nodes:
                 try:
                     query = self.krpc.get_peers_query(info_hash)
                     if self.transport:
