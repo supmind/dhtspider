@@ -8,6 +8,15 @@ from .utils import generate_node_id, decode_nodes
 from .fetcher import MetadataFetcher
 from .storage import Storage
 from .kbucket import RoutingTable
+from .config import (
+    BOOTSTRAP_NODES,
+    BLOOM_FILTER_CAPACITY,
+    BLOOM_FILTER_ERROR_RATE,
+    BLOOM_FILTER_FILE,
+    FETCHER_SEMAPHORE_LIMIT,
+    BUCKET_REFRESH_INTERVAL,
+    FIND_NODES_INTERVAL
+)
 from pybloom_live import BloomFilter
 
 
@@ -15,7 +24,7 @@ class Node(asyncio.DatagramProtocol):
     """
     DHT 节点类，实现了 DHT 协议的主要逻辑。
     """
-    def __init__(self, host, port, bloom_filter_file="seen_info_hashes.bloom"):
+    def __init__(self, host, port, bloom_filter_file=None):
         self.host = host
         self.port = port
         self.node_id = generate_node_id()
@@ -23,19 +32,26 @@ class Node(asyncio.DatagramProtocol):
         self.krpc = KRPC(self)
         self.transport = None
         self.routing_table = RoutingTable(self.node_id)
-        self.bloom_filter_file = bloom_filter_file
-        # 使用布隆过滤器来存储见过的 info_hash，以节省内存
-        # 容量一亿，错误率万分之一
+        self.bloom_filter_file = bloom_filter_file if bloom_filter_file is not None else BLOOM_FILTER_FILE
+        self.seen_info_hashes = self._load_bloom_filter()
+        self.storage = Storage()
+        self.fetcher_semaphore = asyncio.Semaphore(FETCHER_SEMAPHORE_LIMIT)
+
+    def _load_bloom_filter(self):
+        """
+        从文件加载布隆过滤器，如果文件不存在则创建一个新的。
+        """
         try:
             with open(self.bloom_filter_file, 'rb') as f:
-                self.seen_info_hashes = BloomFilter.fromfile(f)
+                bloom = BloomFilter.fromfile(f)
             print("成功加载布隆过滤器。")
+            return bloom
         except FileNotFoundError:
             print("未找到布隆过滤器文件，将创建一个新的。")
-            self.seen_info_hashes = BloomFilter(capacity=100000000, error_rate=0.0001)
-
-        self.storage = Storage()
-        self.fetcher_semaphore = asyncio.Semaphore(100)
+            return BloomFilter(
+                capacity=BLOOM_FILTER_CAPACITY,
+                error_rate=BLOOM_FILTER_ERROR_RATE
+            )
 
     def connection_made(self, transport):
         """
@@ -88,12 +104,7 @@ class Node(asyncio.DatagramProtocol):
         """
         通过连接到已知的 DHT 节点来引导节点。
         """
-        bootstrap_nodes = [
-            ("router.bittorrent.com", 6881),
-            ("dht.transmissionbt.com", 6881),
-            ("router.utorrent.com", 6881),
-        ]
-        for host, port in bootstrap_nodes:
+        for host, port in BOOTSTRAP_NODES:
             try:
                 query = self.krpc.find_node_query(self.node_id)
                 if self.transport:
@@ -117,7 +128,7 @@ class Node(asyncio.DatagramProtocol):
             # 刷新所有 bucket
             for bucket in self.routing_table.buckets:
                 # 如果 bucket 在一段时间内没有更新，就刷新它
-                if time.time() - bucket.last_updated > 600: # 10分钟
+                if time.time() - bucket.last_updated > BUCKET_REFRESH_INTERVAL:
                     # 生成一个在 bucket 范围内的随机ID
                     target_id = random.randint(bucket.min_id, bucket.max_id - 1)
                     target_id_bytes = target_id.to_bytes(20, 'big')
@@ -132,7 +143,7 @@ class Node(asyncio.DatagramProtocol):
                         except Exception:
                             pass
 
-            await asyncio.sleep(60) # 每分钟检查一次
+            await asyncio.sleep(FIND_NODES_INTERVAL)
 
 
     def handle_ping_query(self, trans_id, args, address):

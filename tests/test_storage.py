@@ -10,9 +10,7 @@ async def test_storage_saves_torrent_file(tmp_path):
     测试 Storage 类是否能将元数据正确保存为 .torrent 文件。
     """
     # 1. 设置测试环境
-    # 使用 pytest 的 tmp_path fixture 来创建一个临时的 'bt' 目录
-    output_dir = tmp_path / "bt"
-    storage = Storage(output_dir=str(output_dir))
+    storage = Storage(output_dir=str(tmp_path))
 
     # 2. 准备测试数据
     metadata = {
@@ -28,7 +26,7 @@ async def test_storage_saves_torrent_file(tmp_path):
 
     # 4. 验证结果
     # 验证文件是否已创建
-    expected_file_path = output_dir / f"{info_hash.hex()}.torrent"
+    expected_file_path = tmp_path / f"{info_hash.hex()}.torrent"
     assert os.path.exists(expected_file_path)
 
     # 验证文件内容是否正确

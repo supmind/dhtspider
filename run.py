@@ -1,6 +1,7 @@
 import asyncio
 import uvloop
 from dhtspider.node import Node
+from dhtspider.config import HOST, PORT
 
 # 安装 uvloop 作为默认的事件循环，以提升性能
 uvloop.install()
@@ -13,7 +14,7 @@ async def main():
     """
     shutdown_event = asyncio.Event()
 
-    node = Node(host="0.0.0.0", port=6881)
+    node = Node(host=HOST, port=PORT)
     await node.start()
 
     try:
