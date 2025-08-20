@@ -132,3 +132,52 @@ async def test_fetch_invalid_info_hash_in_handshake(mock_open_connection, mock_r
     await fetcher.fetch()
 
     on_metadata_callback.assert_not_called()
+
+
+# Integration test for bloom filter persistence
+import os
+from dhtspider.node import Node
+
+@pytest.mark.asyncio
+async def test_bloom_filter_prevents_refetch():
+    """
+    一个集成测试，验证布隆过滤器的持久化可以防止对已见过的 info_hash 重新发起抓取。
+    注意：这是一个集成测试，因为它涉及到文件I/O和多个组件的交互。
+    """
+    test_info_hash = os.urandom(20)
+    bloom_file = "test_seen_info_hashes.bloom"
+
+    # 确保测试环境是干净的
+    if os.path.exists(bloom_file):
+        os.remove(bloom_file)
+
+    try:
+        # 1. 创建第一个节点，并传递测试布隆文件名
+        node1 = Node(host="127.0.0.1", port=6883, bloom_filter_file=bloom_file)
+        node1.seen_info_hashes.add(test_info_hash)
+        # 关闭节点以保存布隆过滤器
+        node1.close()
+
+        # 2. 创建第二个节点，它应该会加载上面保存的过滤器
+        node2 = Node(host="127.0.0.1", port=6884, bloom_filter_file=bloom_file)
+        # 确认 info_hash 已存在
+        assert test_info_hash in node2.seen_info_hashes
+
+        # 3. 模拟 get_peers 查询，并监视 fetch_metadata 是否被调用
+        with patch.object(node2, 'fetch_metadata', new_callable=AsyncMock) as mock_fetch:
+            # 模拟一个 get_peers 查询
+            # 在此场景下，我们不需要一个真实的 trans_id 或 address
+            node2.handle_get_peers_query(b't1', {b'info_hash': test_info_hash}, ('127.0.0.1', 1234))
+
+            # 等待一小段时间，以确保异步任务（如果有的话）有机会运行
+            await asyncio.sleep(0.01)
+
+            # 4. 验证 fetch_metadata 没有被调用，因为 info_hash 应该在布隆过滤器中
+            mock_fetch.assert_not_called()
+
+        node2.close()
+
+    finally:
+        # 清理测试文件
+        if os.path.exists(bloom_file):
+            os.remove(bloom_file)

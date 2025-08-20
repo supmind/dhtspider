@@ -15,7 +15,7 @@ class Node(asyncio.DatagramProtocol):
     """
     DHT 节点类，实现了 DHT 协议的主要逻辑。
     """
-    def __init__(self, host, port):
+    def __init__(self, host, port, bloom_filter_file="seen_info_hashes.bloom"):
         self.host = host
         self.port = port
         self.node_id = generate_node_id()
@@ -23,9 +23,17 @@ class Node(asyncio.DatagramProtocol):
         self.krpc = KRPC(self)
         self.transport = None
         self.routing_table = RoutingTable(self.node_id)
+        self.bloom_filter_file = bloom_filter_file
         # 使用布隆过滤器来存储见过的 info_hash，以节省内存
         # 容量一亿，错误率万分之一
-        self.seen_info_hashes = BloomFilter(capacity=100000000, error_rate=0.0001)
+        try:
+            with open(self.bloom_filter_file, 'rb') as f:
+                self.seen_info_hashes = BloomFilter.fromfile(f)
+            print("成功加载布隆过滤器。")
+        except FileNotFoundError:
+            print("未找到布隆过滤器文件，将创建一个新的。")
+            self.seen_info_hashes = BloomFilter(capacity=100000000, error_rate=0.0001)
+
         self.storage = Storage()
         self.fetcher_semaphore = asyncio.Semaphore(100)
 
@@ -67,6 +75,13 @@ class Node(asyncio.DatagramProtocol):
         """
         关闭节点，保存数据。
         """
+        # 保存布隆过滤器状态
+        try:
+            with open(self.bloom_filter_file, 'wb') as f:
+                self.seen_info_hashes.tofile(f)
+            print("布隆过滤器已成功保存。")
+        except Exception as e:
+            print(f"保存布隆过滤器时出错: {e}")
         self.storage.close()
 
     async def bootstrap(self):
