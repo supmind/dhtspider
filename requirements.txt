@@ -1,2 +1,3 @@
 bencoding
 pybloom-live
+uvloop

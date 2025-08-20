@@ -1,5 +1,9 @@
 import asyncio
+import uvloop
 from dhtspider.node import Node
+
+# 安装 uvloop 作为默认的事件循环，以提升性能
+uvloop.install()
 
 # 爬虫启动入口
 
