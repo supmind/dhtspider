@@ -124,8 +124,17 @@ class Node(asyncio.DatagramProtocol):
         处理 get_peers 查询。
         """
         info_hash = args[b'info_hash']
+
+        # 尝试从宣告者那里获取元数据
+        try:
+            fetcher = MetadataFetcher(info_hash, address, self.on_metadata_received, self.peer_id)
+            asyncio.ensure_future(fetcher.fetch())
+        except Exception:
+            pass
+
         if info_hash not in self.seen_info_hashes:
             self.seen_info_hashes.add(info_hash)
+            # 同时，继续向其他节点查询 peer
             for node_id, ip, port in self.routing_table:
                 try:
                     query = self.krpc.get_peers_query(info_hash)
