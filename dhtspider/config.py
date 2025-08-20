@@ -25,3 +25,6 @@ FETCHER_SEMAPHORE_LIMIT = 100  # 并发抓取限制
 # K-Bucket 维护配置
 BUCKET_REFRESH_INTERVAL = 600  # 10分钟，K-Bucket 刷新时间
 FIND_NODES_INTERVAL = 60     # 1分钟，执行一次 find_new_nodes 的间隔
+
+# 状态报告配置
+STATUS_REPORT_INTERVAL = 30  # 30秒，打印一次状态报告

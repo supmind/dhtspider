@@ -3,6 +3,7 @@ import socket
 import hashlib
 import random
 import time
+import logging
 from .krpc import KRPC
 from .utils import generate_node_id, decode_nodes
 from .fetcher import MetadataFetcher
@@ -15,7 +16,8 @@ from .config import (
     BLOOM_FILTER_FILE,
     FETCHER_SEMAPHORE_LIMIT,
     BUCKET_REFRESH_INTERVAL,
-    FIND_NODES_INTERVAL
+    FIND_NODES_INTERVAL,
+    STATUS_REPORT_INTERVAL
 )
 from pybloom_live import BloomFilter
 
@@ -36,6 +38,7 @@ class Node(asyncio.DatagramProtocol):
         self.seen_info_hashes = self._load_bloom_filter()
         self.storage = Storage()
         self.fetcher_semaphore = asyncio.Semaphore(FETCHER_SEMAPHORE_LIMIT)
+        self.metadata_fetched_count = 0
 
     def _load_bloom_filter(self):
         """
@@ -44,10 +47,10 @@ class Node(asyncio.DatagramProtocol):
         try:
             with open(self.bloom_filter_file, 'rb') as f:
                 bloom = BloomFilter.fromfile(f)
-            print("成功加载布隆过滤器。")
+            logging.info("成功从 %s 加载布隆过滤器。", self.bloom_filter_file)
             return bloom
         except FileNotFoundError:
-            print("未找到布隆过滤器文件，将创建一个新的。")
+            logging.info("未找到布隆过滤器文件，将创建一个新的。")
             return BloomFilter(
                 capacity=BLOOM_FILTER_CAPACITY,
                 error_rate=BLOOM_FILTER_ERROR_RATE
@@ -80,12 +83,25 @@ class Node(asyncio.DatagramProtocol):
             self.transport, _ = await loop.create_datagram_endpoint(
                 lambda: self, local_addr=(self.host, self.port)
             )
-            print(f"DHT 节点正在监听 {self.host}:{self.port}")
+            logging.info("DHT 节点正在监听 %s:%s", self.host, self.port)
             await self.bootstrap()
             asyncio.ensure_future(self.find_new_nodes())
+            asyncio.ensure_future(self._report_status())
         except Exception as e:
-            print(f"启动节点时出错: {e}")
+            logging.error("启动节点时出错: %s", e, exc_info=True)
 
+    async def _report_status(self):
+        """
+        定期打印爬虫的状态信息。
+        """
+        while True:
+            await asyncio.sleep(STATUS_REPORT_INTERVAL)
+            logging.info(
+                "[状态报告] 路由表节点: %d | 已见Infohash: %d | 已获取元数据: %d",
+                len(self.routing_table),
+                len(self.seen_info_hashes),
+                self.metadata_fetched_count
+            )
 
     def close(self):
         """
@@ -95,9 +111,9 @@ class Node(asyncio.DatagramProtocol):
         try:
             with open(self.bloom_filter_file, 'wb') as f:
                 self.seen_info_hashes.tofile(f)
-            print("布隆过滤器已成功保存。")
+            logging.info("布隆过滤器已成功保存到 %s。", self.bloom_filter_file)
         except Exception as e:
-            print(f"保存布隆过滤器时出错: {e}")
+            logging.error("保存布隆过滤器时出错: %s", e, exc_info=True)
         self.storage.close()
 
     async def bootstrap(self):
@@ -236,8 +252,9 @@ class Node(asyncio.DatagramProtocol):
         try:
             # 尝试解码名称用于打印，但这不再是存储的强制要求
             name = metadata.get(b'name', b'Unknown').decode('utf-8', 'ignore')
-            print(f"成功获取元数据: {name}")
+            logging.info("成功获取元数据: %s (infohash: %s)", name, info_hash.hex())
             # 将完整的元数据字典传递给存储层
             await self.storage.save(info_hash, metadata)
+            self.metadata_fetched_count += 1
         except Exception as e:
-            print(f"处理或保存元数据时出错: {e}")
+            logging.error("处理或保存元数据时出错: %s", e, exc_info=True)

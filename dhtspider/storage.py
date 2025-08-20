@@ -1,6 +1,7 @@
 import asyncio
 import os
 import bencoding
+import logging
 from .config import STORAGE_DIR
 
 class Storage:
@@ -28,9 +29,9 @@ class Storage:
                 encoded_metadata = bencoding.bencode(metadata)
                 with open(file_path, "wb") as f:
                     f.write(encoded_metadata)
-                print(f"成功保存种子文件: {file_path}")
+                logging.debug("成功保存种子文件: %s", file_path)
             except Exception as e:
-                print(f"保存种子文件时出错: {e}")
+                logging.error("保存种子文件 %s 时出错: %s", file_path, e, exc_info=True)
 
     def close(self):
         """
