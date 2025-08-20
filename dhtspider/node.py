@@ -21,6 +21,7 @@ class Node(asyncio.DatagramProtocol):
         self.routing_table = []
         self.seen_info_hashes = set()
         self.storage = Storage()
+        self.fetcher_semaphore = asyncio.Semaphore(100)
 
     def connection_made(self, transport):
         """
@@ -124,17 +125,8 @@ class Node(asyncio.DatagramProtocol):
         处理 get_peers 查询。
         """
         info_hash = args[b'info_hash']
-
-        # 尝试从宣告者那里获取元数据
-        try:
-            fetcher = MetadataFetcher(info_hash, address, self.on_metadata_received, self.peer_id)
-            asyncio.ensure_future(fetcher.fetch())
-        except Exception:
-            pass
-
         if info_hash not in self.seen_info_hashes:
             self.seen_info_hashes.add(info_hash)
-            # 同时，继续向其他节点查询 peer
             for node_id, ip, port in self.routing_table:
                 try:
                     query = self.krpc.get_peers_query(info_hash)
@@ -142,6 +134,34 @@ class Node(asyncio.DatagramProtocol):
                         self.transport.sendto(query, (ip, port))
                 except Exception:
                     pass
+
+    def handle_announce_peer_query(self, trans_id, args, address):
+        """
+        处理 announce_peer 查询。
+        这是获取 info_hash 最直接的来源。
+        """
+        info_hash = args.get(b'info_hash')
+        if not info_hash:
+            return
+
+        # 响应 announce_peer 查询
+        response = self.krpc.ping_response(trans_id, self.node_id)
+        if self.transport:
+            self.transport.sendto(response, address)
+
+        # 从宣告者那里获取元数据
+        ip = address[0]
+        implied_port = args.get(b'implied_port')
+        if implied_port and implied_port != 0:
+            port = address[1]
+        else:
+            port = args.get(b'port')
+
+        if not port:
+            return
+
+        # 使用带并发限制的获取器
+        asyncio.ensure_future(self.fetch_metadata(info_hash, (ip, port)))
 
     def handle_get_peers_response(self, info_hash, args, address):
         """
@@ -157,6 +177,14 @@ class Node(asyncio.DatagramProtocol):
                 asyncio.ensure_future(fetcher.fetch())
             except Exception:
                 pass
+
+    async def fetch_metadata(self, info_hash, address):
+        """
+        带并发限制地获取元数据。
+        """
+        async with self.fetcher_semaphore:
+            fetcher = MetadataFetcher(info_hash, address, self.on_metadata_received, self.peer_id)
+            await fetcher.fetch()
 
     async def on_metadata_received(self, info_hash, metadata):
         """

@@ -137,6 +137,8 @@ class KRPC:
             self.node.handle_find_node_query(trans_id, args, address)
         elif query_type == b'get_peers':
             self.node.handle_get_peers_query(trans_id, args, address)
+        elif query_type == b'announce_peer':
+            self.node.handle_announce_peer_query(trans_id, args, address)
 
     def handle_error(self, msg, address):
         """
