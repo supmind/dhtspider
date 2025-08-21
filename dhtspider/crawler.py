@@ -87,6 +87,7 @@ class Crawler:
         logging.debug("从 %s 收到了 %d 个新节点", address, len(nodes))
         for node_id, ip, port in nodes:
             try:
+                logging.debug("向新发现的节点 %s:%s 发送 ping", ip, port)
                 self.krpc.ping(addr=(ip, port), node_id=self._fake_node_id(node_id))
             except Exception:
                 pass
@@ -96,6 +97,7 @@ class Crawler:
         持续向引导节点查询，以发现新节点。
         """
         while True:
+            logging.debug("后台任务：开始新一轮的节点发现...")
             for host, port in self.config["BOOTSTRAP_NODES"]:
                 try:
                     query = self.krpc.find_node_query(self.node_id)

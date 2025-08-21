@@ -1,4 +1,5 @@
 import bencoding
+import logging
 
 class KRPC:
     """
@@ -132,6 +133,9 @@ class KRPC:
         """
         处理 KRPC 查询。
         """
+        query_type = msg.get(b'q', b'unknown')
+        logging.debug("收到来自 %s 的查询: %s", address, query_type.decode(errors='ignore'))
+
         if not self.handler:
             return
 
