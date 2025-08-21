@@ -1,3 +1,4 @@
 # 开发和测试环境所需的额外依赖
 pytest
 pytest-asyncio
+pytest-cov

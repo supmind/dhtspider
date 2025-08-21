@@ -2,14 +2,13 @@ import asyncio
 import os
 import bencoding
 import logging
-from .config import STORAGE_DIR
 
 class Storage:
     """
     用于将获取到的元信息保存为 .torrent 文件。
     """
-    def __init__(self, output_dir=None):
-        self.output_dir = output_dir if output_dir is not None else STORAGE_DIR
+    def __init__(self, config):
+        self.output_dir = config["STORAGE_DIR"]
         self.lock = asyncio.Lock()
         # 确保输出目录存在
         if not os.path.exists(self.output_dir):

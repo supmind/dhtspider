@@ -2,7 +2,9 @@ import pytest
 import os
 import hashlib
 import bencoding
+import copy
 from dhtspider.storage import Storage
+from dhtspider.config import default_config
 
 @pytest.mark.asyncio
 async def test_storage_saves_torrent_file(tmp_path):
@@ -10,7 +12,9 @@ async def test_storage_saves_torrent_file(tmp_path):
     测试 Storage 类是否能将元数据正确保存为 .torrent 文件。
     """
     # 1. 设置测试环境
-    storage = Storage(output_dir=str(tmp_path))
+    test_config = copy.deepcopy(default_config)
+    test_config["STORAGE_DIR"] = str(tmp_path)
+    storage = Storage(config=test_config)
 
     # 2. 准备测试数据
     metadata = {

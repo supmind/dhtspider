@@ -1,15 +1,20 @@
 import bencoding
-from .utils import generate_node_id
-
 
 class KRPC:
     """
     实现了 DHT 的 KRPC 协议。
     """
-    def __init__(self, node):
-        self.node = node
+    def __init__(self, node_id):
+        self.node_id = node_id
+        self.handler = None
         self.transaction_id = 0
         self.transactions = {}
+
+    def set_handler(self, handler):
+        """
+        设置查询和响应的处理器（通常是 Crawler 实例）。
+        """
+        self.handler = handler
 
     def _get_transaction_id(self):
         """
@@ -27,7 +32,7 @@ class KRPC:
             b'y': b'q',
             b'q': b'ping',
             b'a': {
-                b'id': self.node.node_id
+                b'id': self.node_id
             }
         }
         return bencoding.bencode(msg)
@@ -41,7 +46,7 @@ class KRPC:
             b'y': b'q',
             b'q': b'find_node',
             b'a': {
-                b'id': self.node.node_id,
+                b'id': self.node_id,
                 b'target': target_id
             }
         }
@@ -60,7 +65,7 @@ class KRPC:
             b'y': b'q',
             b'q': b'get_peers',
             b'a': {
-                b'id': self.node.node_id,
+                b'id': self.node_id,
                 b'info_hash': info_hash
             }
         }
@@ -103,6 +108,9 @@ class KRPC:
         """
         处理 KRPC 响应。
         """
+        if not self.handler:
+            return
+
         trans_id = msg.get(b't')
         if not trans_id:
             return
@@ -111,11 +119,11 @@ class KRPC:
 
         args = msg.get(b'r', {})
         if b'nodes' in args:
-            self.node.handle_find_node_response(trans_id, args, address)
+            self.handler.handle_find_node_response(trans_id, args, address)
         elif b'values' in args and transaction:
             info_hash = transaction.get("info_hash")
             if info_hash:
-                self.node.handle_get_peers_response(info_hash, args, address)
+                self.handler.handle_get_peers_response(info_hash, args, address)
 
         if trans_id in self.transactions:
             del self.transactions[trans_id]
@@ -124,6 +132,9 @@ class KRPC:
         """
         处理 KRPC 查询。
         """
+        if not self.handler:
+            return
+
         trans_id = msg.get(b't')
         if not trans_id:
             return
@@ -132,13 +143,13 @@ class KRPC:
         args = msg.get(b'a', {})
 
         if query_type == b'ping':
-            self.node.handle_ping_query(trans_id, args, address)
+            self.handler.handle_ping_query(trans_id, args, address)
         elif query_type == b'find_node':
-            self.node.handle_find_node_query(trans_id, args, address)
+            self.handler.handle_find_node_query(trans_id, args, address)
         elif query_type == b'get_peers':
-            self.node.handle_get_peers_query(trans_id, args, address)
+            self.handler.handle_get_peers_query(trans_id, args, address)
         elif query_type == b'announce_peer':
-            self.node.handle_announce_peer_query(trans_id, args, address)
+            self.handler.handle_announce_peer_query(trans_id, args, address)
 
     def handle_error(self, msg, address):
         """
