@@ -100,7 +100,9 @@ class Crawler:
             logging.debug("后台任务：开始新一轮的节点发现...")
             for host, port in self.config["BOOTSTRAP_NODES"]:
                 try:
-                    query = self.krpc.find_node_query(generate_node_id())
+                    target_id = generate_node_id()
+                    logging.debug("向引导节点 %s:%s 发送 find_node, 目标ID: %s", host, port, target_id.hex())
+                    query = self.krpc.find_node_query(target_id)
                     if self.protocol:
                         self.protocol.sendto(query, (host, port))
                 except Exception:
