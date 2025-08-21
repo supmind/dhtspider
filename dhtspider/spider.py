@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import hashlib
+import socket
 
 import bencoding as bencoder
 from pybloom_live import BloomFilter
@@ -47,7 +48,8 @@ class Spider(asyncio.DatagramProtocol):
 
         # Bootstrap
         for host, port in BOOTSTRAP_NODES:
-            self.find_node(addr=(host, port))
+            # Use ensure_future for async calls from sync method
+            asyncio.ensure_future(self.find_node(addr=(host, port)), loop=self.loop)
 
         self.__running = True
         asyncio.ensure_future(self.auto_find_nodes(), loop=self.loop)
@@ -67,7 +69,7 @@ class Spider(asyncio.DatagramProtocol):
     async def auto_find_nodes(self):
         while self.__running:
             for host, port in BOOTSTRAP_NODES:
-                self.find_node(addr=(host, port))
+                await self.find_node(addr=(host, port))
             await asyncio.sleep(self.config["FIND_NODES_INTERVAL"])
 
     async def _report_status(self):
@@ -102,7 +104,7 @@ class Spider(asyncio.DatagramProtocol):
         args = msg.get(b'r', {})
         if b'nodes' in args:
             for node_id, ip, port in decode_nodes(args[b'nodes']):
-                self.find_node(addr=(ip, port))
+                asyncio.ensure_future(self.find_node(addr=(ip, port)), loop=self.loop)
 
     async def handle_query(self, msg, addr):
         args = msg.get(b'a', {})
@@ -141,7 +143,7 @@ class Spider(asyncio.DatagramProtocol):
                 "t": msg[b"t"], "y": "r", "r": {"id": self._fake_node_id(sender_id)}
             }, addr)
 
-        self.find_node(addr=addr)
+        await self.find_node(addr=addr)
 
     # --- Core Logic ---
     async def fetch_metadata(self, info_hash, address):
@@ -165,13 +167,22 @@ class Spider(asyncio.DatagramProtocol):
         if self.transport:
             self.transport.sendto(bencoder.bencode(data), addr)
 
-    def find_node(self, addr, target=None):
-        if not target:
-            target = generate_node_id()
-        self.send_message({
-            "t": b"fn", "y": "q", "q": "find_node",
-            "a": {"id": self.node_id, "target": target}
-        }, addr)
+    async def find_node(self, addr, target=None):
+        host, port = addr
+        try:
+            res = await self.loop.getaddrinfo(host, port, proto=socket.IPPROTO_UDP)
+            resolved_addr = res[0][4]
+
+            if not target:
+                target = generate_node_id()
+            self.send_message({
+                "t": b"fn", "y": "q", "q": "find_node",
+                "a": {"id": self.node_id, "target": target}
+            }, resolved_addr)
+        except socket.gaierror:
+            logging.warning("无法解析主机: %s", host)
+        except Exception as e:
+            logging.error("find_node to %s:%s 出错: %s", host, port, e)
 
     def _fake_node_id(self, target_id=None):
         if target_id:
