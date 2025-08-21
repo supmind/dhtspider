@@ -110,19 +110,23 @@ class Spider(asyncio.DatagramProtocol):
         args = msg.get(b'a', {})
         sender_id = args.get(b'id')
         query_type = msg.get(b'q')
+        target = None
 
         logging.debug("收到来自 %s 的查询: %s", addr, query_type.decode(errors='ignore'))
 
         if query_type == b'get_peers':
             info_hash = args[b'info_hash']
+            target = info_hash
             token = info_hash[:2]
             self.send_message({
                 "t": msg[b"t"], "y": "r",
-                "r": {"id": self._fake_node_id(sender_id), "nodes": "", "token": token}
+                "r": {"id": self._fake_node_id(info_hash), "nodes": "", "token": token}
             }, addr)
 
         elif query_type == b'announce_peer':
             info_hash = args.get(b'info_hash')
+            if info_hash:
+                target = info_hash
             self.send_message({
                 "t": msg[b"t"], "y": "r", "r": {"id": self._fake_node_id(sender_id)}
             }, addr)
@@ -133,9 +137,11 @@ class Spider(asyncio.DatagramProtocol):
                     await self.fetch_metadata(info_hash, peer_addr)
 
         elif query_type == b'find_node':
+            query_target = args.get(b'target')
+            target = query_target
             self.send_message({
                 "t": msg[b"t"], "y": "r",
-                "r": {"id": self._fake_node_id(sender_id), "nodes": ""}
+                "r": {"id": self._fake_node_id(query_target), "nodes": ""}
             }, addr)
 
         elif query_type == b'ping':
@@ -143,7 +149,7 @@ class Spider(asyncio.DatagramProtocol):
                 "t": msg[b"t"], "y": "r", "r": {"id": self._fake_node_id(sender_id)}
             }, addr)
 
-        await self.find_node(addr=addr)
+        await self.find_node(addr=addr, target=target)
 
     # --- Core Logic ---
     async def fetch_metadata(self, info_hash, address):
