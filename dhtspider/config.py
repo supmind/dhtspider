@@ -26,6 +26,9 @@ default_config = {
     # 元数据抓取器配置
     "FETCHER_SEMAPHORE_LIMIT": 100,
 
+    # 节点发现任务配置
+    "FIND_NODES_INTERVAL": 60,
+
     # 状态报告配置
     "STATUS_REPORT_INTERVAL": 30,
 }
