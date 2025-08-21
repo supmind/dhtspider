@@ -6,7 +6,7 @@ from dhtspider.config import HOST, PORT
 
 # 配置日志记录
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG, # 设置为 DEBUG 级别以查看更详细的日志
     format='%(asctime)s - %(levelname)s - %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'
 )

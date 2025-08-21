@@ -210,11 +210,13 @@ class Node(asyncio.DatagramProtocol):
         这是获取 info_hash 最直接的来源。
         """
         info_hash = args.get(b'info_hash')
+        logging.debug("收到来自 %s 的 announce_peer 请求, infohash: %s", address, info_hash.hex())
         if not info_hash:
             return
 
         # 如果我们已经成功保存过这个 infohash，就忽略它
         if info_hash in self.seen_info_hashes:
+            logging.debug("已处理过该 infohash，跳过: %s", info_hash.hex())
             return
 
         # 响应 announce_peer 查询
