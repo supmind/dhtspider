@@ -3,7 +3,7 @@ import socket
 import hashlib
 import logging
 
-from .utils import decode_nodes
+from .utils import decode_nodes, generate_node_id
 from .fetcher import MetadataFetcher
 
 class Crawler:
@@ -100,7 +100,7 @@ class Crawler:
             logging.debug("后台任务：开始新一轮的节点发现...")
             for host, port in self.config["BOOTSTRAP_NODES"]:
                 try:
-                    query = self.krpc.find_node_query(self.node_id)
+                    query = self.krpc.find_node_query(generate_node_id())
                     if self.protocol:
                         self.protocol.sendto(query, (host, port))
                 except Exception:
