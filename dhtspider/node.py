@@ -8,7 +8,6 @@ from .krpc import KRPC
 from .utils import generate_node_id, decode_nodes
 from .fetcher import MetadataFetcher
 from .storage import Storage
-from .kbucket import RoutingTable
 from .config import (
     BOOTSTRAP_NODES,
     BLOOM_FILTER_CAPACITY,
@@ -34,7 +33,6 @@ class Node(asyncio.DatagramProtocol):
         self.peer_id = hashlib.sha1(self.node_id).digest()
         self.krpc = KRPC(self)
         self.transport = None
-        self.routing_table = RoutingTable(self.node_id)
         self.bloom_filter_file = bloom_filter_file if bloom_filter_file is not None else BLOOM_FILTER_FILE
         self.seen_info_hashes = self._load_bloom_filter()
         self.storage = Storage()
@@ -98,8 +96,7 @@ class Node(asyncio.DatagramProtocol):
         while True:
             await asyncio.sleep(STATUS_REPORT_INTERVAL)
             logging.info(
-                "[状态报告] 路由表节点: %d | 已见Infohash: %d | 已获取元数据: %d",
-                len(self.routing_table),
+                "[状态报告] 已见Infohash: %d | 已获取元数据: %d",
                 len(self.seen_info_hashes),
                 self.metadata_fetched_count
             )
@@ -142,57 +139,36 @@ class Node(asyncio.DatagramProtocol):
     def handle_find_node_response(self, trans_id, args, address):
         """
         处理 find_node 的响应。
+        简单地 ping 响应中收到的所有节点。
         """
         nodes = decode_nodes(args[b'nodes'])
         for node_id, ip, port in nodes:
-            self.routing_table.add_node((node_id, ip, port))
+            try:
+                self.krpc.ping(addr=(ip, port), node_id=self._fake_node_id(node_id))
+            except Exception:
+                pass
 
     async def find_new_nodes(self):
         """
-        持续发现新的节点，并刷新旧的 bucket。
+        持续向引导节点查询，以发现新节点。
+        这是一个简单但有效的持续发现策略。
         """
         while True:
-            # 1. 对我们自己的ID执行 find_node 查询以发现新节点
-            # 这是更主动的节点发现策略
-            closest_nodes = self.routing_table.get_closest_nodes(
-                self.node_id, count=DHT_SEARCH_CONCURRENCY
-            )
-            for node_id, ip, port in closest_nodes:
+            for host, port in BOOTSTRAP_NODES:
                 try:
+                    # 使用 self.krpc.find_node_query, 而不是直接构造
                     query = self.krpc.find_node_query(self.node_id)
-                    if self.transport:
-                        self.transport.sendto(query, (ip, port))
+                    self.transport.sendto(query, (host, port))
                 except Exception:
                     pass
-
-            # 2. 刷新所有 bucket 以保持路由表健康
-            for bucket in self.routing_table.buckets:
-                if time.time() - bucket.last_updated > BUCKET_REFRESH_INTERVAL:
-                    # 生成一个在 bucket 范围内的随机ID
-                    target_id = random.randint(bucket.min_id, bucket.max_id - 1)
-                    target_id_bytes = target_id.to_bytes(20, 'big')
-
-                    # 向 bucket 中最近的节点查询这个ID
-                    # 注意：这里我们应该向 bucket 自己的节点查询，而不是全表最近
-                    # 为了简单起见，我们仍然使用全表最近的节点
-                    closest_to_target = self.routing_table.get_closest_nodes(target_id_bytes)
-                    for node_id, ip, port in closest_to_target:
-                        try:
-                            query = self.krpc.find_node_query(target_id_bytes)
-                            if self.transport:
-                                self.transport.sendto(query, (ip, port))
-                        except Exception:
-                            pass
-
             await asyncio.sleep(FIND_NODES_INTERVAL)
-
 
     def handle_ping_query(self, trans_id, args, address):
         """
         处理 ping 查询。
         """
         sender_id = args[b'id']
-        response = self.krpc.ping_response(trans_id, self.node_id)
+        response = self.krpc.ping_response(trans_id, self._fake_node_id(sender_id))
         if self.transport:
             self.transport.sendto(response, address)
 
@@ -200,24 +176,36 @@ class Node(asyncio.DatagramProtocol):
         """
         处理 find_node 查询。
         """
-        pass
+        sender_id = args[b'id']
+        response = self.krpc.find_node_response(
+            trans_id, self._fake_node_id(sender_id), ""
+        )
+        if self.transport:
+            self.transport.sendto(response, address)
 
     def handle_get_peers_query(self, trans_id, args, address):
         """
         处理 get_peers 查询。
         """
         info_hash = args[b'info_hash']
+        # 将 infohash 添加到布隆过滤器
         if info_hash not in self.seen_info_hashes:
             self.seen_info_hashes.add(info_hash)
-            # 从K-Bucket中找到最近的节点并向它们查询
-            closest_nodes = self.routing_table.get_closest_nodes(info_hash)
-            for node_id, ip, port in closest_nodes:
-                try:
-                    query = self.krpc.get_peers_query(info_hash)
-                    if self.transport:
-                        self.transport.sendto(query, (ip, port))
-                except Exception:
-                    pass
+
+        # 回复一个包含 "nodes" 的响应，即使我们没有。
+        # 这里的关键是伪造我们的node_id，让对方认为我们是它的邻居。
+        sender_id = args[b'id']
+        response = self.krpc.get_peers_response(
+            trans_id,
+            self._fake_node_id(sender_id),
+            "some_token", # token可以是一个固定的或简单计算的值
+            nodes="" # 返回空的nodes
+        )
+        if self.transport:
+            self.transport.sendto(response, address)
+
+        # 触发用户定义的 handler
+        asyncio.ensure_future(self.on_get_peers(info_hash, address))
 
     def handle_announce_peer_query(self, trans_id, args, address):
         """
@@ -229,7 +217,8 @@ class Node(asyncio.DatagramProtocol):
             return
 
         # 响应 announce_peer 查询
-        response = self.krpc.ping_response(trans_id, self.node_id)
+        sender_id = args[b'id']
+        response = self.krpc.ping_response(trans_id, self._fake_node_id(sender_id))
         if self.transport:
             self.transport.sendto(response, address)
 
@@ -246,6 +235,23 @@ class Node(asyncio.DatagramProtocol):
 
         # 使用带并发限制的获取器
         asyncio.ensure_future(self.fetch_metadata(info_hash, (ip, port)))
+
+        # 触发用户定义的 handler
+        asyncio.ensure_future(self.on_announce_peer(info_hash, address, (ip, port)))
+
+    async def on_get_peers(self, info_hash, addr):
+        """
+        当收到 get_peers 请求时的用户处理程序。
+        默认不执行任何操作，但可以由子类重写。
+        """
+        pass
+
+    async def on_announce_peer(self, info_hash, addr, peer_addr):
+        """
+        当收到 announce_peer 请求时的用户处理程序。
+        默认不执行任何操作，但可以由子类重写。
+        """
+        pass
 
     def handle_get_peers_response(self, info_hash, args, address):
         """
@@ -283,3 +289,14 @@ class Node(asyncio.DatagramProtocol):
             self.metadata_fetched_count += 1
         except Exception as e:
             logging.error("处理或保存元数据时出错: %s", e, exc_info=True)
+
+    def _fake_node_id(self, target_id=None):
+        """
+        伪造一个节点ID。
+        如果提供了目标ID，则生成的ID会与目标ID很接近。
+        这会诱使对方节点向我们发送更多信息。
+        """
+        if target_id:
+            # 取目标ID的前缀，和我们自己ID的后缀，拼接成一个新ID
+            return target_id[:-1] + self.node_id[-1:]
+        return self.node_id
