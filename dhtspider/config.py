@@ -26,12 +26,6 @@ default_config = {
     # 元数据抓取器配置
     "FETCHER_SEMAPHORE_LIMIT": 100,
 
-    # K-Bucket 维护配置
-    "K_BUCKET_SIZE": 16,
-    "DHT_SEARCH_CONCURRENCY": 32,
-    "BUCKET_REFRESH_INTERVAL": 600,
-    "FIND_NODES_INTERVAL": 60,
-
     # 状态报告配置
     "STATUS_REPORT_INTERVAL": 30,
 }
