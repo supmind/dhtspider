@@ -84,6 +84,7 @@ class Crawler:
 
     def handle_find_node_response(self, trans_id, args, address):
         nodes = decode_nodes(args[b'nodes'])
+        logging.debug("从 %s 收到了 %d 个新节点", address, len(nodes))
         for node_id, ip, port in nodes:
             try:
                 self.krpc.ping(addr=(ip, port), node_id=self._fake_node_id(node_id))
@@ -151,6 +152,7 @@ class Crawler:
 
     def handle_get_peers_response(self, info_hash, args, address):
         peers = args[b'values']
+        logging.debug("为 info_hash %s 收到 %d 个 peer", info_hash.hex(), len(peers))
         for peer in peers:
             try:
                 ip = socket.inet_ntoa(peer[:4])
