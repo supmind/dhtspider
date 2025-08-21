@@ -58,9 +58,14 @@ class TestCrawler:
             crawler.handle_announce_peer_query(trans_id, args, address)
 
             # 3. 断言
+            # 验证回复了 ping
             krpc.ping_response.assert_called_once()
-            protocol.sendto.assert_called_once()
+            # 验证触发了元数据抓取
             mock_fetch.assert_called_once_with(info_hash, (address[0], args[b'port']))
+            # 验证发起了反向查询
+            krpc.find_node_query.assert_called_once()
+            # 验证网络总共发送了两次（ping回复 + find_node查询）
+            assert protocol.sendto.call_count == 2
 
     def test_bloom_filter_persistence(self, tmp_path):
         """
@@ -142,8 +147,11 @@ class TestCrawler:
 
             # 虽然会回复 ping，但不应该触发抓取
             krpc.ping_response.assert_called_once()
-            protocol.sendto.assert_called_once()
             mock_fetch.assert_not_called()
+            # 验证发起了反向查询
+            krpc.find_node_query.assert_called_once()
+            # 验证网络总共发送了两次（ping回复 + find_node查询）
+            assert protocol.sendto.call_count == 2
 
     @pytest.mark.asyncio
     async def test_handle_announce_peer_query_implied_port(self, crawler_components):

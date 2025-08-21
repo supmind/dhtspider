@@ -32,9 +32,40 @@ class Crawler:
         """
         self.protocol = protocol
 
+    def _send_reciprocal_find_node(self, address):
+        """
+        向刚刚与我们通信的节点发送一个 find_node 请求，以进行交互式节点发现。
+        """
+        if not self.protocol:
+            return
+
+        target_id = generate_node_id()
+        query = self.krpc.find_node_query(target_id)
+        self.protocol.sendto(query, address)
+        logging.debug("向 %s 发送了反向 find_node 查询", address)
+
+    async def bootstrap(self):
+        """
+        通过向引导节点发送 find_node 请求来引导自身。
+        使用随机ID以最大化初始探索范围。
+        """
+        loop = asyncio.get_running_loop()
+        for host, port in self.config["BOOTSTRAP_NODES"]:
+            try:
+                res = await loop.getaddrinfo(host, port, proto=socket.IPPROTO_UDP)
+                family, _, _, _, sockaddr = res[0]
+                target_id = generate_node_id()
+                query = self.krpc.find_node_query(target_id)
+                if self.protocol:
+                    self.protocol.sendto(query, sockaddr)
+            except socket.gaierror:
+                logging.warning("无法解析引导节点: %s:%s", host, port)
+            except Exception as e:
+                logging.error("引导过程中出现未知错误: %s", e, exc_info=True)
+
     async def start(self):
         """
-        启动爬虫逻辑。
+        启动爬虫逻辑，包括自举和后台任务。
         """
         await self.bootstrap()
         asyncio.ensure_future(self.find_new_nodes())
@@ -64,23 +95,6 @@ class Crawler:
         except Exception as e:
             logging.error("保存布隆过滤器时出错: %s", e, exc_info=True)
         self.storage.close()
-
-    async def bootstrap(self):
-        """
-        通过连接到已知的 DHT 节点来引导节点。
-        """
-        loop = asyncio.get_running_loop()
-        for host, port in self.config["BOOTSTRAP_NODES"]:
-            try:
-                res = await loop.getaddrinfo(host, port, proto=socket.IPPROTO_UDP)
-                family, _, _, _, sockaddr = res[0]
-                query = self.krpc.find_node_query(self.node_id)
-                if self.protocol:
-                    self.protocol.sendto(query, sockaddr)
-            except socket.gaierror:
-                logging.warning("无法解析引导节点: %s:%s", host, port)
-            except Exception as e:
-                logging.error("引导过程中出现未知错误: %s", e, exc_info=True)
 
     def handle_find_node_response(self, trans_id, args, address):
         nodes = decode_nodes(args[b'nodes'])
@@ -114,6 +128,7 @@ class Crawler:
         response = self.krpc.ping_response(trans_id, self._fake_node_id(sender_id))
         if self.protocol:
             self.protocol.sendto(response, address)
+        self._send_reciprocal_find_node(address)
 
     def handle_find_node_query(self, trans_id, args, address):
         sender_id = args[b'id']
@@ -122,6 +137,7 @@ class Crawler:
         )
         if self.protocol:
             self.protocol.sendto(response, address)
+        self._send_reciprocal_find_node(address)
 
     def handle_get_peers_query(self, trans_id, args, address):
         info_hash = args[b'info_hash']
@@ -132,6 +148,7 @@ class Crawler:
         if self.protocol:
             self.protocol.sendto(response, address)
         asyncio.ensure_future(self.on_get_peers(info_hash, address))
+        self._send_reciprocal_find_node(address)
 
     def handle_announce_peer_query(self, trans_id, args, address):
         info_hash = args.get(b'info_hash')
@@ -143,6 +160,8 @@ class Crawler:
         response = self.krpc.ping_response(trans_id, self._fake_node_id(sender_id))
         if self.protocol:
             self.protocol.sendto(response, address)
+
+        self._send_reciprocal_find_node(address)
 
         ip = address[0]
         port = args.get(b'port') if args.get(b'implied_port', 1) == 0 else address[1]
