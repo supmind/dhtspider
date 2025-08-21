@@ -188,9 +188,6 @@ class Node(asyncio.DatagramProtocol):
         处理 get_peers 查询。
         """
         info_hash = args[b'info_hash']
-        # 将 infohash 添加到布隆过滤器
-        if info_hash not in self.seen_info_hashes:
-            self.seen_info_hashes.add(info_hash)
 
         # 回复一个包含 "nodes" 的响应，即使我们没有。
         # 这里的关键是伪造我们的node_id，让对方认为我们是它的邻居。
@@ -214,6 +211,10 @@ class Node(asyncio.DatagramProtocol):
         """
         info_hash = args.get(b'info_hash')
         if not info_hash:
+            return
+
+        # 如果我们已经成功保存过这个 infohash，就忽略它
+        if info_hash in self.seen_info_hashes:
             return
 
         # 响应 announce_peer 查询
@@ -287,6 +288,8 @@ class Node(asyncio.DatagramProtocol):
             # 将完整的元数据字典传递给存储层
             await self.storage.save(info_hash, metadata)
             self.metadata_fetched_count += 1
+            # 只有在成功保存后，才将 infohash 添加到布隆过滤器
+            self.seen_info_hashes.add(info_hash)
         except Exception as e:
             logging.error("处理或保存元数据时出错: %s", e, exc_info=True)
 
